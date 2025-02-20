@@ -1,0 +1,11 @@
+# Ignorowanie wirtualnego środowiska
+bc_env/
+
+# Pliki systemowe i edytorów
+.vscode/
+.idea/
+
+# Pliki Python
+__pycache__/
+*.pyc
+*.pyo

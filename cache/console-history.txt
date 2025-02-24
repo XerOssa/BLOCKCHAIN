@@ -1,7 +1,0 @@
-console.log("Wallet balance:", balance.toString());npx hardhat run scripts/interact.js --network localhost
-const balance = await wallet.getBalance();
-// Teraz możesz interagować z kontraktem, np. sprawdzić saldo:
-const wallet = await Wallet.attach("
-const Wallet = await ethers.getContractFactory("SimpleWallet");
-const wallet = await Wallet.attach("0x5FbDB2315678afecb367f032d93F642f64180aa3");
-const Wallet = await ethers.getContractFactory("SimpleWallet");

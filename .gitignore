@@ -9,3 +9,11 @@ bc_env/
 __pycache__/
 *.pyc
 *.pyo
+
+# Ignorowanie plików i folderów związanych z projektem Hardhat
+node_modules/
+.cache/
+.artifacts/
+
+# Ignorowanie pliku .env
+.env

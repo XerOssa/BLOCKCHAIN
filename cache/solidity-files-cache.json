@@ -36,6 +36,42 @@
       "artifacts": [
         "Lock"
       ]
+    },
+    "D:\\_ROBOTA\\python\\BLOCKCHAIN\\contracts\\SimpleWallet.sol": {
+      "lastModificationDate": 1740429884273,
+      "contentHash": "7f832a06ece256b3b9d107be0e84d0b3",
+      "sourceName": "contracts/SimpleWallet.sol",
+      "solcConfig": {
+        "version": "0.8.28",
+        "settings": {
+          "evmVersion": "paris",
+          "optimizer": {
+            "enabled": false,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.19"
+      ],
+      "artifacts": [
+        "SimpleWallet"
+      ]
     }
   }
 }

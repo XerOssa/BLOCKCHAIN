@@ -2,12 +2,17 @@ import requests
 import matplotlib.pyplot as plt
 from datetime import datetime
 
+
+
+
 # Pobieranie aktualnej ceny BNB z Binance
-def get_binance_BNB(symbol="BNBUSDT"):
+def get_binance_data(symbol):
     url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
     response = requests.get(url)
     data = response.json()
     return float(data["price"]) if "price" in data else None
+
+
 
 # Pobieranie salda portfela z BscScan
 def get_wallet_balance(wallet_address, api_key):
@@ -39,16 +44,13 @@ def main():
     api_key = "VC142F8ZFU9TX5FFMHUY1S1W3RATWF89AV"
     
     balance_bnb = get_wallet_balance(wallet_address, api_key)
-    if balance_bnb is None:
-        return
     
-    bnbusdt = get_binance_BNB()
-    if bnbusdt is None:
-        print("Nie udało się pobrać ceny BNB.")
-        return
-    
+    bnbusdt = get_binance_data(symbol="BNBUSDT")
+    usd = get_binance_data(symbol="BUSDPLN")
+   
     saldo = balance_bnb * bnbusdt
-    print(f"Saldo portfela wynosi: {balance_bnb} BNB, czyli {saldo:.2f} USD")
+    total = saldo * usd
+    print(f"Saldo portfela wynosi:  {saldo:.2f} USD czyli {total:.2f} PLN")
     
     # Aktualizacja danych do wykresu
     current_date = datetime.now().strftime('%Y-%m-%d')

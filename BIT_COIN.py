@@ -4,6 +4,18 @@ import pandas_ta as ta
 import time
 import schedule
 
+def get_binance_BNB(symbol="BNBUSDT", interval="5m", limit=50):
+    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
+    response = requests.get(url)
+    data = response.json()
+    
+    df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume", "_", "_", "_", "_", "_", "_"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")  # Konwersja na datę
+    df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].astype(float)  # Zamiana na liczby
+    return df
+
+# df = get_binance_BNB()
+
 
 def get_price(symbol="BTCUSDT"):
     url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"

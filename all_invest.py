@@ -66,22 +66,18 @@ def plot_total_balance():
     plt.show()
 
 
-def save_to_csv(date, bnbusdc, usd, saldo_bnb, saldo_sol,  saldo_eth, saldo_btc, total, deposit):
-    
-    file_exists = False
-    # date = datetime.strptime(date, '%Y-%m-%d %H:%M:%S')
-    try:
-        with open('balance_data.csv', 'r'):
-            file_exists = True
-    except FileNotFoundError:
-        pass
+def save_to_csv(date, total, deposit):
+    file_exists = os.path.exists('balance_data.csv')
+
     with open('balance_data.csv', mode='a', newline='') as file:
         writer = csv.writer(file)
-        
+
         if not file_exists:
-            writer.writerow(['Date', 'BNB/USDC', 'USD/PLN', 'Saldo_bnb', 'Saldo_sol', 'saldo_eth', 'saldo_btc', 'Total', 'Deposit'])
-        
-        writer.writerow([date, bnbusdc, usd, saldo_bnb, saldo_sol, saldo_eth, saldo_btc, total, deposit])
+            header = ['Date', 'Total', 'Deposit']
+            writer.writerow(header)
+
+        row = [date,  total, deposit] 
+        writer.writerow(row)
 
 
 
@@ -221,7 +217,7 @@ def get_staking_balance(client):
     if response.status_code == 200:
         data = response.json()
         for item in data:
-            print(f"Asset: {item['asset']}, Amount: {item['amount']}")
+            item['asset'], item['amount']
     else:
         print(f"Error: {response.status_code} - {response.text}")
     return float(item['amount']) if "amount" in item else None
@@ -230,39 +226,41 @@ def get_staking_balance(client):
 
 
 def main():
-
-    balance_bnb = get_wallet_balance(WALLET_ADDRESS, API_KEY1)
-    bnbusdc = get_binance_data(symbol="BNBUSDC")
-    solusdc = get_binance_data(symbol="SOLUSDC")
-    ethusdc = get_binance_data(symbol="ETHUSDC")
-    btcusdc = get_binance_data(symbol="BTCUSDC")
-    usd = get_binance_data(symbol="BUSDPLN")
-
     client = Client(API_KEY, API_SECRET)
     binance_balance = get_binance_balance(client)
-    eth = 0
-    btc = 0
-    for asset in binance_balance:
-        if asset['asset'] == 'ETH':
-            eth += asset['total']
-        elif asset['asset'] == 'BTC':
-            btc += asset['total']
+    balance_bnb = get_wallet_balance(WALLET_ADDRESS, API_KEY1)
+    usd = get_binance_data(symbol="BUSDPLN")
+    sol = get_binance_data(symbol="SOLUSDC")
+    bnb = get_binance_data(symbol="BNBUSDC")
+    total_usd = 0
     sol_stacking = get_staking_balance(client)
-    saldo_bnb = balance_bnb * bnbusdc
-    saldo_sol = solusdc * sol_stacking
-    saldo_eth = eth * ethusdc
-    saldo_btc = btc * btcusdc
-    total_pln = (saldo_bnb + saldo_sol + saldo_eth + saldo_btc) * usd
-    print(f"Saldo bnb wynosi: {saldo_bnb:.2f} USD czyli {saldo_bnb*usd:.2f} PLN")
-    print(f"Saldo sol wynosi: {saldo_sol:.2f} USD czyli {saldo_sol*usd:.2f} PLN")
-    print(f"Saldo eth wynosi: {saldo_eth:.2f} USD czyli {saldo_eth*usd:.2f} PLN")
-    print(f"Saldo btc wynosi: {saldo_btc:.2f} USD czyli {saldo_btc*usd:.2f} PLN")
-    current_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    deposit = 4000
+    saldo_sol = sol * sol_stacking
+    saldo_bnb = bnb * balance_bnb
+    asset_data = {}
 
-    save_to_csv(current_date, bnbusdc, usd, saldo_bnb, saldo_sol, saldo_eth,  saldo_btc, total_pln, deposit)
+    for asset in binance_balance:
+        amount = asset['total']  # używamy 'total' do obliczenia wartości
+        if asset['asset'] == 'BUSD':
+            continue  # Pomijamy stablecoin BUSD, bo jest używany jako wycena
+
+        asset_symbol = f'{asset["asset"]}USDC'
+        asset_price = get_binance_data(asset_symbol)
+
+        if asset_price:
+            saldo_usd = amount * asset_price
+            asset_data[asset['asset']] = saldo_usd
+            print(f"Saldo {asset['asset']}: {saldo_usd:.2f} USD")
+            total_usd += saldo_usd
+
+    total_pln = (total_usd + saldo_sol + saldo_bnb) * usd
+    deposit = 4000
+    current_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"Saldo bnb: {saldo_bnb:.2f} USD")
+    print(f"Saldo sol stacking: {saldo_sol:.2f} USD")
+    save_to_csv(current_date, total_pln, deposit)
     print(f"Profit: {total_pln - deposit:.2f} PLN")
     plot_total_balance()
+
 
 if __name__ == "__main__":
     main()

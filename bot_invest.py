@@ -19,185 +19,94 @@ API_KEY1 = os.getenv("API_KEY")
 API_KEY = os.getenv("BINANCE_API_KEY")
 API_SECRET = os.getenv("BINANCE_SECRET_KEY")
 BASE_URL = "https://api.binance.com"
+client = Client(API_KEY, API_SECRET)
 
-
-def get_binance_data(symbol):
-    url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
-    response = requests.get(url)
-    data = response.json()
-    return float(data["price"]) if "price" in data else None
-
-
-def get_wallet_balance(wallet_address, api_key):
-    url = f"https://api.bscscan.com/api?module=account&action=balance&address={wallet_address}&tag=latest&apikey={api_key}"
-    response = requests.get(url)
-    data = response.json()
-    if data["status"] == "1":
-        balance_wei = int(data["result"])
-        return balance_wei / 10**18
-    else:
-        print(f"Błąd: {data['message']}")
-        return None
-
-
-def plot_total_balance():
-    df1 = pd.read_csv("balance_data.csv")
-    df1['Date'] = pd.to_datetime(df1['Date'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
-    df1['Date'] = pd.to_datetime(df1['Date'], errors='coerce')
+def adjust_quantity(symbol, price):
+    # Pobieramy szczegóły symbolu
+    info = client.get_symbol_info(symbol)
     
-    df1 = df1.dropna(subset=['Date'])
-    plt.clf()
-    plt.plot(df1['Date'], df1['Total'], marker='o', linestyle='-', color='b', label='Total Balance (PLN)')
-    plt.plot(df1['Date'], df1['Deposit'], marker='o', linestyle='-', color='r', label='Deposit')
-    plt.title('Total Balance Over Time', fontsize=14)
-    plt.xlabel('Date', fontsize=12)
-    plt.ylabel('Total Balance (PLN)', fontsize=12)
-    data_size = len(df1)
-    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-    if data_size <= 10:
-        plt.gca().xaxis.set_major_locator(mdates.HourLocator(interval=1))
-    elif data_size <= 30:
-        plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=1))
-    else:
-        plt.gca().xaxis.set_major_locator(mdates.MonthLocator(interval=1))
-    plt.gca().xaxis.set_minor_locator(mdates.AutoDateLocator())
-    plt.xticks(rotation=45)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    # Znajdujemy filtr NOTIONAL i LOT_SIZE
+    notional_filter = next(f for f in info['filters'] if f['filterType'] == 'NOTIONAL')
+    lot_size_filter = next(f for f in info['filters'] if f['filterType'] == 'LOT_SIZE')
+
+    min_notional = float(notional_filter['minNotional'])
+    step_size = float(lot_size_filter['stepSize'])
+    min_qty = float(lot_size_filter['minQty'])
+
+    # Obliczamy minimalną ilość potrzebną, aby spełnić wymagania NOTIONAL
+    required_quantity = max(min_qty, min_notional / price)
+
+    # Zaokrąglamy ilość do najbliższego kroku (stepSize)
+    quantity = int(required_quantity // step_size) * step_size
+    return int(quantity)
+
+# Przykład użycia
+current_price = 0.068  # Aktualna cena DOGE w USDC (zmień na aktualną)
+quantity = adjust_quantity('DOGEUSDC', current_price)
+print(f"Ustalona ilość do zakupu: {quantity}")
 
 
-def save_to_csv(date, bnbusdt, usd, saldo_bnb, saldo_sol,  saldo_eth, total, deposit):
-    
-    file_exists = False
-    # date = datetime.strptime(date, '%Y-%m-%d %H:%M:%S')
-    try:
-        with open('balance_data.csv', 'r'):
-            file_exists = True
-    except FileNotFoundError:
-        pass
-    with open('balance_data.csv', mode='a', newline='') as file:
-        writer = csv.writer(file)
+def monitor_and_execute_grid(buy_orders, symbol, upper_price, lower_price, grid_levels, quantity):
+    """Monitoruje realizację zleceń kupna i składa odpowiadające zlecenia sprzedaży."""
+    while True:
+        time.sleep(5)  # Sprawdzaj co 5 sekund
+
+        for order in buy_orders[:]:  # Iteracja po kopii listy
+            order_id = order['orderId']
+            order_status = client.get_order(symbol=symbol, orderId=order_id)
+
+            if order_status['status'] == "FILLED":
+                buy_price = float(order_status['price'])
+                sell_price = buy_price + (upper_price - lower_price) / (grid_levels - 1)
+
+                # Sprawdź saldo, czy masz wystarczające środki do sprzedaży
+                balance = client.get_asset_balance(asset="DOGE")  # Zmienna zależna od twojej pary (np. DOGE)
+                available_balance = float(balance['free'])
+
+                if available_balance >= quantity:
+                    try:
+                        # Składamy zlecenie sprzedaży
+                        sell_order = client.order_limit_sell(
+                            symbol=symbol,
+                            quantity=quantity,
+                            price=str(sell_price)
+                        )
+                        print(f"✅ Zrealizowano kupno na {buy_price} USDC -> Złożono sprzedaż na {sell_price} USDC")
+
+                        # Usunięcie zrealizowanego zlecenia kupna z listy
+                        buy_orders.remove(order)
+                        # Dodanie zlecenia sprzedaży do listy
+                        buy_orders.append(sell_order)
+                    
+                    except Exception as e:
+                        print(f"Błąd przy składaniu zlecenia sprzedaży: {e}")
+                else:
+                    print(f"❌ Brak wystarczających środków na sprzedaż. Dostępne saldo: {available_balance} DOGE")
         
-        if not file_exists:
-            writer.writerow(['Date', 'BNB/USDT', 'USD/PLN', 'Saldo_bnb', 'Saldo_sol', 'saldo_eth','Total', 'Deposit'])
-        
-        writer.writerow([date, bnbusdt, usd, saldo_bnb, saldo_sol, saldo_eth, total, deposit])
+        time.sleep(5)  # Możesz zmniejszyć czas oczekiwania, jeśli chcesz częściej sprawdzać
 
 
+def place_grid_orders(symbol, lower_price, upper_price, grid_levels, quantity):
+    """Tworzy siatkę zleceń kupna, ale tylko jeśli nie zostały jeszcze zrealizowane."""
+    grid_prices = [lower_price + i * (upper_price - lower_price) / (grid_levels - 1) for i in range(grid_levels)]
+    print("Siatka cenowa:", grid_prices)
 
-def get_investments(balance):
-    investments = []
+    buy_orders = []
     
-    for asset in balance['balances']:
-        symbol = asset['asset']
-        free = float(asset['free'])  # Dostępne środki
-        locked = float(asset['locked'])  # Zablokowane środki
-        
-        # Jeśli mamy jakiekolwiek środki (zarówno free, jak i locked), dodajemy je do listy
-        if free > 0 or locked > 0:
-            investments.append({
-                'symbol': symbol,
-                'free': free,
-                'locked': locked,
-                'total': free + locked  # Całkowita wartość aktywów
-            })
+    # Pobieramy informacje o symbolu
+    info = client.get_symbol_info(symbol)
     
-    return investments
-
-
-def get_staking_balance(client):
-    url = "https://api.binance.com/sapi/v1/staking/position"
+    # Sprawdzamy, czy mamy już aktywne zlecenie kupna
+    active_orders = client.get_open_orders(symbol=symbol)
     
-    # Wprowadź swoje dane API, które są wymagane do autoryzacji
-    params = {
-        'timestamp': int(time.time() * 1000),  # Wartość timestamp w milisekundach
-        'recvWindow': 5000,  # Opcjonalnie, można dodać parametry
-        'product': 'STAKING'
-    }
+    if active_orders:
+        print("Masz już aktywne zlecenie kupna. Nie będziemy składać nowych zleceń.")
+        return buy_orders  # Jeśli są aktywne zlecenia, nie składamy nowych
+
+    # Składaj nowe zlecenia, tylko jeśli nie mamy aktywnych
+    for price in grid_prices:
+        order = client.order_limit_buy(symbol=symbol, quantity=quantity, price=str(price))
+        buy_orders.append(order)
+        print(f"Złożono zlecenie KUPNA na {price} {symbol}")
     
-    # Tworzymy podpis (signature) na podstawie parametrów zapytania
-    query_string = '&'.join([f"{key}={value}" for key, value in params.items()])
-    signature = hmac.new(
-        client.API_SECRET.encode('utf-8'),
-        query_string.encode('utf-8'),
-        hashlib.sha256
-    ).hexdigest()
-    
-    params['signature'] = signature  # Dodajemy podpis do parametrów zapytania
-
-    headers = {
-        'X-MBX-APIKEY': client.API_KEY  # Wstaw swój klucz API
-    }
-    
-    # Wykonanie zapytania
-    response = requests.get(url, params=params, headers=headers)
-    
-    if response.status_code == 200:
-        data = response.json()
-        for item in data:
-            item_asset = item['asset']
-            item_amount = float(item['amount'])
-    else:
-        print(f"Error: {response.status_code} - {response.text}")
-    return item_amount
-
-
-def get_binance_balance(client):
-    try:
-        account_info = client.get_account()
-        balances = account_info.get("balances", [])
-
-        assets = []
-        for asset in balances:
-            asset_name = asset["asset"]
-            free = float(asset["free"])
-            locked = float(asset["locked"])
-            total = free + locked
-
-            if total > 0:  # Ignorujemy aktywa o zerowym saldzie
-                assets.append({
-                    "asset": asset_name,
-                    "free": free,
-                    "locked": locked,
-                    "total": total
-                })
-
-        return assets
-    except Exception as e:
-        print(f"Błąd podczas pobierania salda: {e}")
-        return []
-
-
-
-def main():
-
-    balance_bnb = get_wallet_balance(WALLET_ADDRESS, API_KEY1)
-    bnbusdt = get_binance_data(symbol="BNBUSDT")
-    solusdt = get_binance_data(symbol="SOLUSDT")
-    ethusdt = get_binance_data(symbol="ETHUSDT")
-    usd = get_binance_data(symbol="BUSDPLN")
-
-    client = Client(API_KEY, API_SECRET)
-    binance_balance = get_binance_balance(client)
-    eth = 0
-    for asset in binance_balance:
-        item_amount = asset['total']  # Pobieramy całkowitą ilość danego aktywa
-        eth += item_amount
-    sol_stacking = get_staking_balance(client)
-    saldo_bnb = balance_bnb * bnbusdt
-    saldo_sol = solusdt* sol_stacking
-    saldo_eth = eth * ethusdt
-    total_pln = (saldo_bnb + saldo_sol + saldo_eth) * usd
-    print(f"Saldo bnb wynosi: {saldo_bnb:.2f} USD czyli {saldo_bnb*usd:.2f} PLN")
-    print(f"Saldo sol wynosi: {saldo_sol:.2f} USD czyli {saldo_sol*usd:.2f} PLN")
-    print(f"Saldo eth wynosi: {saldo_eth:.2f} USD czyli {saldo_eth*usd:.2f} PLN")
-    current_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    deposit = 3000
-
-    save_to_csv(current_date, bnbusdt, usd, saldo_bnb, saldo_sol, saldo_eth, total_pln, deposit)
-    print(f"Profit: {total_pln - deposit:.2f} PLN")
-    plot_total_balance()
-
-if __name__ == "__main__":
-    main()
+    return buy_orders

@@ -52,9 +52,7 @@ def plot_total_balance():
     plt.ylabel('Total Balance (PLN)', fontsize=12)
     data_size = len(df1)
     plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-    if data_size <= 10:
-        plt.gca().xaxis.set_major_locator(mdates.HourLocator(interval=1))
-    elif data_size <= 30:
+    if data_size >= 10:
         plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=1))
     else:
         plt.gca().xaxis.set_major_locator(mdates.MonthLocator(interval=1))
@@ -239,18 +237,22 @@ def main():
     asset_data = {}
 
     for asset in binance_balance:
-        amount = asset['total']  # używamy 'total' do obliczenia wartości
-        if asset['asset'] == 'BUSD':
-            continue  # Pomijamy stablecoin BUSD, bo jest używany jako wycena
-
+        amount = asset['total']
         asset_symbol = f'{asset["asset"]}USDC'
-        asset_price = get_binance_data(asset_symbol)
-
-        if asset_price:
+        
+        # Jeśli aktywo to USDC, użyj samego symbolu bez dodawania 'USDC'
+        if asset['asset'] == 'USDC':
+            asset_price = 1.0  # Zakładamy, że USDC jest zawsze w stosunku 1:1 do USD
             saldo_usd = amount * asset_price
+        else:
+            asset_price = get_binance_data(asset_symbol)
+            saldo_usd = amount * asset_price if asset_price else 0
+
+        if saldo_usd > 0:
             asset_data[asset['asset']] = saldo_usd
             print(f"Saldo {asset['asset']}: {saldo_usd:.2f} USD")
             total_usd += saldo_usd
+
 
     total_pln = (total_usd + saldo_sol + saldo_bnb) * usd
     deposit = 4000

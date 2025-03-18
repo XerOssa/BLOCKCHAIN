@@ -23,8 +23,13 @@ df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'v
 # Konwersja timestamp na datę
 df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
 
-# Wybór fragmentu zbioru danych (jeśli chcesz analizować tylko część danych, np. ostatnich 50 godzin)
-df_selected = df.tail(50)  # ostatnich 50 godzin
+
+# Wybór fragmentu zbioru danych (ostatnich 200 godzin)
+df_selected = df.tail(200)
+
+# Obliczanie poziomu wsparcia (najniższa cena) i oporu (najwyższa cena)
+support_level = df_selected['low'].min()  # Najniższa cena w okresie
+resistance_level = df_selected['high'].max()  # Najwyższa cena w okresie
 
 # Tworzenie wykresu świecowego za pomocą Plotly
 fig = go.Figure(data=[go.Candlestick(
@@ -36,9 +41,25 @@ fig = go.Figure(data=[go.Candlestick(
     name='Candlestick Chart'
 )])
 
+fig.add_trace(go.Scatter(
+    x=df_selected['timestamp'],
+    y=[resistance_level] * len(df_selected), 
+    mode='lines',
+    name='Resistance',
+    line=dict(color='red', dash='dash')
+))
+
+fig.add_trace(go.Scatter(
+    x=df_selected['timestamp'],
+    y=[support_level] * len(df_selected),
+    mode='lines',
+    name='Support',
+    line=dict(color='green', dash='dash')
+))
+
 # Ustawienia wykresu
 fig.update_layout(
-    title=f'Candlestick Chart for {symbol} - Last 50 Hours',
+    title=f'Candlestick Chart for {symbol} - Last 200 Hours with Support and Resistance Levels',
     xaxis_title='Time',
     yaxis_title='Price (USDT)',
     xaxis_rangeslider_visible=False  # Ukrywa suwak na osi X
@@ -46,6 +67,8 @@ fig.update_layout(
 
 # Wyświetlenie wykresu
 fig.show()
+
+df['close'] = pd.to_numeric(df['close'], errors='coerce')
 
 # Obliczanie dziennej zmiany ceny
 df['price_change'] = df['close'].pct_change()
@@ -85,7 +108,7 @@ accuracy = accuracy_score(y_test, y_pred)
 print(f'Accuracy: {accuracy:.4f}')
 
 # Pobieranie nowych danych BTC/USDT (np. z ostatnich 100 punktów danych)
-url_new = f'https://api.binance.com/api/v1/klines?symbol={symbol}&interval={interval}&limit=100'
+url_new = f'https://api.binance.com/api/v1/klines?symbol={symbol}&interval={interval}&limit=200'
 response_new = requests.get(url_new)
 new_data = response_new.json()
 
@@ -94,7 +117,12 @@ new_data_df = pd.DataFrame(new_data, columns=['timestamp', 'open', 'high', 'low'
 
 # Konwersja timestamp na datę
 new_data_df['timestamp'] = pd.to_datetime(new_data_df['timestamp'], unit='ms')
+
+# Konwersja kolumny 'close' na typ numeryczny
 new_data_df['close'] = pd.to_numeric(new_data_df['close'], errors='coerce')
+
+# Sortowanie nowych danych po czasie
+new_data_df = new_data_df.sort_values('timestamp')
 
 # Obliczanie SMA i RSI dla nowych danych
 new_data_df['SMA_5'] = new_data_df['close'].rolling(window=5).mean()
@@ -112,3 +140,4 @@ predictions = model.predict(new_data_df[features])
 
 # Wyświetlenie prognoz (0 - spadek, 1 - wzrost)
 print(predictions)
+

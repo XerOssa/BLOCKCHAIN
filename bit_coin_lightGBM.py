@@ -1,143 +1,181 @@
+# Importowanie bibliotek
 import requests
 import pandas as pd
+import numpy as np
 from sklearn.preprocessing import StandardScaler
 import lightgbm as lgb
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import pandas_ta as ta
 import plotly.graph_objects as go
-
-# Pobieranie danych BTC/USDT z Binance
-symbol = 'BTCUSDT'
-interval = '1h'  # interwał 1 godzina
-limit = 1000  # liczba punktów danych
-
-url = f'https://api.binance.com/api/v1/klines?symbol={symbol}&interval={interval}&limit={limit}'
-
-response = requests.get(url)
-data = response.json()
-
-# Konwertowanie na DataFrame
-df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_asset_volume', 'number_of_trades', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'])
-
-# Konwersja timestamp na datę
-df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+from scipy.signal import argrelextrema
+from plotly.subplots import make_subplots
 
 
-# Wybór fragmentu zbioru danych (ostatnich 200 godzin)
-df_selected = df.tail(200)
 
-# Obliczanie poziomu wsparcia (najniższa cena) i oporu (najwyższa cena)
-support_level = df_selected['low'].min()  # Najniższa cena w okresie
-resistance_level = df_selected['high'].max()  # Najwyższa cena w okresie
 
-# Tworzenie wykresu świecowego za pomocą Plotly
-fig = go.Figure(data=[go.Candlestick(
-    x=df_selected['timestamp'],
-    open=df_selected['open'],
-    high=df_selected['high'],
-    low=df_selected['low'],
-    close=df_selected['close'],
-    name='Candlestick Chart'
-)])
+def fetch_data(symbol, interval, limit):
+    url = f'https://api.binance.com/api/v1/klines?symbol={symbol}&interval={interval}&limit={limit}'
+    response = requests.get(url)
+    data = response.json()
+    return pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_asset_volume', 'number_of_trades', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'])
 
-fig.add_trace(go.Scatter(
-    x=df_selected['timestamp'],
-    y=[resistance_level] * len(df_selected), 
-    mode='lines',
-    name='Resistance',
-    line=dict(color='red', dash='dash')
-))
 
-fig.add_trace(go.Scatter(
-    x=df_selected['timestamp'],
-    y=[support_level] * len(df_selected),
-    mode='lines',
-    name='Support',
-    line=dict(color='green', dash='dash')
-))
+def preprocess_data(df):
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    df['close'] = pd.to_numeric(df['close'], errors='coerce')
+    df['low'] = pd.to_numeric(df['low'], errors='coerce')
+    df['high'] = pd.to_numeric(df['high'], errors='coerce')
+    return df
 
-# Ustawienia wykresu
-fig.update_layout(
-    title=f'Candlestick Chart for {symbol} - Last 200 Hours with Support and Resistance Levels',
-    xaxis_title='Time',
-    yaxis_title='Price (USDT)',
-    xaxis_rangeslider_visible=False  # Ukrywa suwak na osi X
-)
 
-# Wyświetlenie wykresu
-fig.show()
+def find_sorted_support_resistance(df, n=5):
+    # Wyszukaj minima i maksima
+    min_indices = argrelextrema(df['low'].values, np.less_equal, order=n)[0]
+    max_indices = argrelextrema(df['high'].values, np.greater_equal, order=n)[0]
 
-df['close'] = pd.to_numeric(df['close'], errors='coerce')
+    # Stwórz DataFrame dla wsparcia i oporu
+    support_levels = df.iloc[min_indices][['timestamp', 'low']].copy()
+    support_levels['type'] = 'support'  # Dodajemy typ poziomu
 
-# Obliczanie dziennej zmiany ceny
-df['price_change'] = df['close'].pct_change()
+    resistance_levels = df.iloc[max_indices][['timestamp', 'high']].copy()
+    resistance_levels['type'] = 'resistance'  # Dodajemy typ poziomu
 
-# Tworzenie etykiety (0 - spadek, 1 - wzrost) dla kierunku zmiany ceny
-df['target'] = (df['price_change'] > 0).astype(int)
+    # Połącz oba DataFrame
+    combined = pd.concat([support_levels, resistance_levels]).sort_values(by='timestamp')
 
-# Używamy danych z poprzednich dni (lag features), np. średnia ruchoma
-df['SMA_5'] = df['close'].rolling(window=5).mean()
-df['SMA_20'] = df['close'].rolling(window=20).mean()
-df['rsi'] = ta.rsi(df['close'], length=14)
+    return combined
 
-# Usuwanie wierszy z brakującymi danymi
-df = df.dropna()
 
-# Normalizacja cech
-scaler = StandardScaler()
-features = ['close', 'volume', 'SMA_5', 'SMA_20', 'rsi']
-df[features] = scaler.fit_transform(df[features])
+def calculate_support_resistance_difference(df, support_resistance_df):
+    # Oblicz średnią cenę zamknięcia
+    avg_price = df['close'].mean()
 
-# Oddzielamy cechy i etykiety
-X = df[features]
-y = df['target']
+    # Tworzymy listę różnic między oporem a wsparciem
+    differences = []
+    
+    # Iterujemy po poziomach
+    for i in range(1, len(support_resistance_df)):
+        if support_resistance_df.iloc[i-1]['type'] == 'support' and support_resistance_df.iloc[i]['type'] == 'resistance':
+            support = support_resistance_df.iloc[i-1]
+            resistance = support_resistance_df.iloc[i]
+            
+            # Oblicz różnicę między oporem a wsparciem
+            difference = resistance['high'] - support['low']
+            
+            # Jeżeli różnica jest większa niż 5% średniej ceny
+            if difference / avg_price > 0.05:
+                differences.append({
+                    'support_time': support['timestamp'],
+                    'resistance_time': resistance['timestamp'],
+                    'support_level': support['low'],
+                    'resistance_level': resistance['high'],
+                    'difference': difference
+                })
 
-# Podział danych na zbiór treningowy i testowy
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    return pd.DataFrame(differences)
 
-# Tworzymy i trenujemy model LightGBM
-model = lgb.LGBMClassifier(n_estimators=100, learning_rate=0.05, num_leaves=31)
-model.fit(X_train, y_train)
 
-# Predykcja na zbiorze testowym
-y_pred = model.predict(X_test)
 
-# Ocena modelu
-accuracy = accuracy_score(y_test, y_pred)
-print(f'Accuracy: {accuracy:.4f}')
+def find_extremums_sorted(df, n=5):
+    min_indices = argrelextrema(df['low'].values, np.less_equal, order=n)[0]
+    max_indices = argrelextrema(df['high'].values, np.greater_equal, order=n)[0]
 
-# Pobieranie nowych danych BTC/USDT (np. z ostatnich 100 punktów danych)
-url_new = f'https://api.binance.com/api/v1/klines?symbol={symbol}&interval={interval}&limit=200'
-response_new = requests.get(url_new)
-new_data = response_new.json()
+    support_levels = df.iloc[min_indices][['timestamp', 'low']].sort_values(by='low')
+    resistance_levels = df.iloc[max_indices][['timestamp', 'high']].sort_values(by='high', ascending=False)
+    
+    return support_levels, resistance_levels    
 
-# Konwertowanie nowych danych na DataFrame
-new_data_df = pd.DataFrame(new_data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_asset_volume', 'number_of_trades', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'])
 
-# Konwersja timestamp na datę
-new_data_df['timestamp'] = pd.to_datetime(new_data_df['timestamp'], unit='ms')
+def calculate_indicators(df):
+    df['RSI'] = ta.rsi(df['close'], length=20)
+    df['EMA_9'] = ta.ema(df['close'], length=9)
+    df['EMA_25'] = ta.ema(df['close'], length=25)
+    return df.dropna()
 
-# Konwersja kolumny 'close' na typ numeryczny
-new_data_df['close'] = pd.to_numeric(new_data_df['close'], errors='coerce')
 
-# Sortowanie nowych danych po czasie
-new_data_df = new_data_df.sort_values('timestamp')
+def find_levels(df, n=5):
+    min_indices = argrelextrema(df['low'].values, np.less_equal, order=n)[0]
+    max_indices = argrelextrema(df['high'].values, np.greater_equal, order=n)[0]
 
-# Obliczanie SMA i RSI dla nowych danych
-new_data_df['SMA_5'] = new_data_df['close'].rolling(window=5).mean()
-new_data_df['SMA_20'] = new_data_df['close'].rolling(window=20).mean()
-new_data_df['rsi'] = ta.rsi(new_data_df['close'], length=14)
+    support_levels = df.iloc[min_indices][['timestamp', 'low']]
+    resistance_levels = df.iloc[max_indices][['timestamp', 'high']]
+    return support_levels, resistance_levels
 
-# Usuwanie brakujących danych
-new_data_df = new_data_df.dropna()
 
-# Normalizowanie nowych danych
-new_data_df[features] = scaler.transform(new_data_df[features])
+def plot_chart(df, symbol):
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+                        vertical_spacing=0.1, row_heights=[0.7, 0.3])
 
-# Prognozowanie kierunku zmiany ceny
-predictions = model.predict(new_data_df[features])
+    fig.add_trace(go.Candlestick(
+        x=df['timestamp'],
+        open=df['open'],
+        high=df['high'],
+        low=df['low'],
+        close=df['close'],
+        name='Candlestick Chart'
+    ), row=1, col=1)
 
-# Wyświetlenie prognoz (0 - spadek, 1 - wzrost)
-print(predictions)
+    fig.add_trace(go.Scatter(
+        x=df['timestamp'],
+        y=df['RSI'],
+        mode='lines',
+        name='RSI',
+        line=dict(color='blue')
+    ), row=2, col=1)
 
+    fig.update_layout(title=f'Candlestick Chart for {symbol}',
+                      xaxis_title='Time',
+                      yaxis_title='Price (USDC)',
+                      xaxis_rangeslider_visible=False)
+    fig.show()
+
+
+def train_model(X_train, y_train):
+    model = lgb.LGBMClassifier(n_estimators=100, learning_rate=0.05, num_leaves=31)
+    model.fit(X_train, y_train)
+    return model
+
+
+def prepare_features(df):
+    scaler = StandardScaler()
+    features = ['close', 'volume', 'EMA_9', 'EMA_25', 'RSI']
+    df[features] = scaler.fit_transform(df[features])
+    return df, scaler
+
+
+def main():
+    symbol = 'BTCUSDC'
+    interval = '15m'
+    limit = 1000
+
+    df = fetch_data(symbol, interval, limit)
+    df = preprocess_data(df)
+    df = calculate_indicators(df)
+    support_resistance_df = find_sorted_support_resistance(df)
+
+    # Oblicz różnice i wybierz te, które mają różnicę większą niż 5% średniej ceny
+    differences_df = calculate_support_resistance_difference(df, support_resistance_df)
+    
+    print(differences_df)
+    plot_chart(df, symbol)
+    
+
+
+    # Przygotowanie danych dla LightGBM
+    df, scaler = prepare_features(df)
+
+    X = df[['close', 'volume', 'EMA_9', 'EMA_25', 'RSI']]
+    y = (df['close'].pct_change() > 0).astype(int)
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    model = train_model(X_train, y_train)
+
+    # Ocena modelu
+    y_pred = model.predict(X_test)
+    accuracy = accuracy_score(y_test, y_pred)
+    print(f'Accuracy: {accuracy:.4f}')
+
+
+if __name__ == "__main__":
+    main()

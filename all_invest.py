@@ -255,7 +255,7 @@ def main():
 
 
     total_pln = (total_usd + saldo_sol + saldo_bnb) * usd
-    deposit = 4000
+    deposit = 4850
     current_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Saldo bnb: {saldo_bnb:.2f} USD")
     print(f"Saldo sol stacking: {saldo_sol:.2f} USD")

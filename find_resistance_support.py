@@ -29,18 +29,37 @@ df_selected = df.tail(200)
 
 
 # Znalezienie lokalnych minimów i maksimów
-# Znalezienie lokalnych minimów i maksimów
-# Znalezienie lokalnych minimów i maksimów
 n = 5  # Szerokość okna do znajdowania ekstremów
+
 min_indices = argrelextrema(df_selected['low'].values, np.less_equal, order=n)[0]
 max_indices = argrelextrema(df_selected['high'].values, np.greater_equal, order=n)[0]
 
 # Tworzenie nowych kolumn z wartościami wsparcia i oporu
-df_selected['Support'] = np.nan
-df_selected['Resistance'] = np.nan
+support_levels = df_selected.iloc[min_indices][['timestamp', 'low']]
+resistance_levels = df_selected.iloc[max_indices][['timestamp', 'high']]
 
-df_selected.loc[df_selected.index[min_indices], 'Support'] = df_selected['low'].iloc[min_indices]
-df_selected.loc[df_selected.index[max_indices], 'Resistance'] = df_selected['high'].iloc[max_indices]
+
+def filter_levels(levels):
+    """
+    Filtruje poziomy, pozostawiając tylko te, które są oddalone od siebie o co najmniej threshold (w procentach).
+    """
+    filtered = []
+    previous_level = None
+
+    for index, row in levels.iterrows():
+        current_level = row[1]
+
+        if previous_level is None or abs(current_level - previous_level) / previous_level :
+            filtered.append(row)
+            previous_level = current_level
+
+    return pd.DataFrame(filtered, columns=levels.columns)
+
+
+# Filtrowanie poziomów wsparcia i oporu
+filtered_support = filter_levels(support_levels)
+filtered_resistance = filter_levels(resistance_levels)
+
 
 # Tworzenie wykresu świecowego
 fig = go.Figure(data=[go.Candlestick(x=df_selected['timestamp'],
@@ -50,30 +69,23 @@ fig = go.Figure(data=[go.Candlestick(x=df_selected['timestamp'],
                                     close=df_selected['close'],
                                     name='Candlestick Chart')])
 
+
 # Dodawanie poziomów wsparcia i oporu
-support_levels = df_selected['Support'].dropna().unique()
-resistance_levels = df_selected['Resistance'].dropna().unique()
+for _, row in filtered_support.iterrows():
+    fig.add_trace(go.Scatter(x=[row['timestamp']], y=[row['low']],
+                             mode='markers', name='Support',
+                             marker=dict(color='green', size=8)))
 
-for level in support_levels:
-    fig.add_trace(go.Scatter(x=df_selected['timestamp'], y=[level]*len(df_selected),
-                             mode='lines', name=f'Support {level}',
-                             line=dict(color='green', dash='dash')))
+for _, row in filtered_resistance.iterrows():
+    fig.add_trace(go.Scatter(x=[row['timestamp']], y=[row['high']],
+                             mode='markers', name='Resistance',
+                             marker=dict(color='red', size=8)))
 
-for level in resistance_levels:
-    fig.add_trace(go.Scatter(x=df_selected['timestamp'], y=[level]*len(df_selected),
-                             mode='lines', name=f'Resistance {level}',
-                             line=dict(color='red', dash='dash')))
 
 # Ustawienia wykresu
-fig.update_layout(title=f'Wykres BTC/USDT z automatycznym wykrywaniem wsparć i oporów',
+fig.update_layout(title=f'Wykres BTC/USDT z przefiltrowanymi poziomami wsparć i oporów',
                   xaxis_title='Czas',
                   yaxis_title='Cena (USDT)',
                   xaxis_rangeslider_visible=False)
 
 fig.show()
-
-
-
-
-
-

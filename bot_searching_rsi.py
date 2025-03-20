@@ -1,8 +1,10 @@
 import time
 import pandas as pd
-import ta
+import pandas_ta as ta
 import os
 from binance import Client
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import pytz
 
 
 # KONFIGURACJA
@@ -14,6 +16,8 @@ TOP_LIMIT = 100  # Liczba najpopularniejszych kryptowalut do analizy
 INTERVAL = '1h'  # Interwał świec (np. '1d', '4h', '1h')
 RSI_PERIOD = 14
 VOLUME_PERIOD = 21  # Liczba świec do wyliczenia średniego wolumenu
+MAX_WORKERS = 10  # Liczba wątków do równoległego przetwarzania
+LOCAL_TZ = pytz.timezone('Europe/Warsaw')  # Strefa czasowa +1
 
 
 def get_top_cryptos():
@@ -26,11 +30,12 @@ def get_top_cryptos():
 def get_historical_klines(symbol, limit):
     try:
         klines = client.get_klines(symbol=symbol, interval=INTERVAL, limit=limit)
-        data = pd.DataFrame(klines, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 
-                                             'close_time', 'quote_asset_volume', 'number_of_trades', 
+        data = pd.DataFrame(klines, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume',
+                                             'close_time', 'quote_asset_volume', 'number_of_trades',
                                              'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'])
         data['close'] = data['close'].astype(float)
         data['volume'] = data['volume'].astype(float)
+        data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms').dt.tz_localize('UTC').dt.tz_convert(LOCAL_TZ)
         data = data.iloc[:-1]
         return data
     except Exception as e:
@@ -38,51 +43,47 @@ def get_historical_klines(symbol, limit):
         return None
 
 
-def calculate_rsi(data):
-    data['rsi'] = ta.momentum.RSIIndicator(data['close'], window=RSI_PERIOD).rsi()
+def analyze_symbol(symbol):
+    data = get_historical_klines(symbol, max(RSI_PERIOD + 1, VOLUME_PERIOD))
+    if data is None:
+        return None
+
+    # Oblicz RSI
+    data['rsi'] = ta.rsi(data['close'], length=RSI_PERIOD)
     rsi_value = data.iloc[-1]['rsi']
+    rsi_date = data.iloc[-1]['timestamp']
 
     if pd.isna(rsi_value) or rsi_value <= 0 or rsi_value > 100:
-        return None  # Ignoruj nieprawidłowe RSI
+        return None
 
-    return rsi_value
-
-
-def check_volume_filter(data):
+    # Sprawdzenie wolumenu
     last_volume = data.iloc[-1]['volume']
     average_volume = data['volume'].iloc[-VOLUME_PERIOD:].mean()
-    return last_volume > average_volume
+
+    if last_volume > average_volume:
+        return symbol, rsi_value, rsi_date
+
+    return None
 
 
 def main():
     top_symbols = get_top_cryptos()
     results = []
 
-    for symbol in top_symbols:
-        data = get_historical_klines(symbol, RSI_PERIOD + 1)
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_symbol = {executor.submit(analyze_symbol, symbol): symbol for symbol in top_symbols}
 
-        if data is not None:
-            rsi = calculate_rsi(data)
-            if rsi is not None:  # Ignoruj nieprawidłowe RSI
-                results.append((symbol, rsi))
-
-        time.sleep(0.1)  # Uniknięcie przekroczenia limitów API
+        for future in as_completed(future_to_symbol):
+            result = future.result()
+            if result:
+                results.append(result)
 
     # Posortowanie wyników po RSI rosnąco (najniższe na górze)
     sorted_results = sorted(results, key=lambda x: x[1])[:10]
-    print('Najniższe RSI dla top 100 kryptowalut:')
-    for symbol, rsi in sorted_results:
-        print(f'{symbol}: RSI = {rsi}')
-    # Sprawdzenie wolumenu tylko dla wybranych kryptowalut o najniższym RSI
-    final_results = []
-    for symbol, rsi in sorted_results:
-        data = get_historical_klines(symbol, VOLUME_PERIOD)
-        if data is not None and check_volume_filter(data):
-            final_results.append((symbol, rsi))
 
     print('Najniższe RSI dla top 100 kryptowalut (z filtrem wolumenu):')
-    for symbol, rsi in final_results:
-        print(f'{symbol}: RSI = {rsi}')
+    for symbol, rsi, rsi_date in sorted_results:
+        print(f'{symbol}: RSI = {round(rsi, 2)} (Data: {rsi_date})')
 
 
 if __name__ == '__main__':

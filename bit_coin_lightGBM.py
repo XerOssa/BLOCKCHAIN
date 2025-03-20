@@ -29,7 +29,7 @@ def preprocess_data(df):
     return df
 
 
-def find_sorted_support_resistance(df, n=5):
+def find_sorted_support_resistance(df, n=40):
     # Wyszukaj minima i maksima
     min_indices = argrelextrema(df['low'].values, np.less_equal, order=n)[0]
     max_indices = argrelextrema(df['high'].values, np.greater_equal, order=n)[0]
@@ -44,7 +44,18 @@ def find_sorted_support_resistance(df, n=5):
     # Połącz oba DataFrame
     combined = pd.concat([support_levels, resistance_levels]).sort_values(by='timestamp')
 
-    return combined
+    # Upewnijmy się, że wartości są naprzemienne
+    sorted_levels = []
+    last_type = None
+    
+    for i, row in combined.iterrows():
+        if last_type != row['type']:  # Jeśli typ poziomu zmienia się, dodajemy go
+            sorted_levels.append(row)
+            last_type = row['type']
+    
+    # Zwróć wynik jako DataFrame
+    return pd.DataFrame(sorted_levels)
+
 
 
 def calculate_support_resistance_difference(df, support_resistance_df):

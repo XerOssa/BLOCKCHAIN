@@ -99,43 +99,6 @@ def get_investments(balance):
     return investments
 
 
-def get_staking_balance(client):
-    url = "https://api.binance.com/sapi/v1/staking/position"
-    
-    # Wprowadź swoje dane API, które są wymagane do autoryzacji
-    params = {
-        'timestamp': int(time.time() * 1000),  # Wartość timestamp w milisekundach
-        'recvWindow': 5000,  # Opcjonalnie, można dodać parametry
-        'product': 'STAKING'
-    }
-    
-    # Tworzymy podpis (signature) na podstawie parametrów zapytania
-    query_string = '&'.join([f"{key}={value}" for key, value in params.items()])
-    signature = hmac.new(
-        client.API_SECRET.encode('utf-8'),
-        query_string.encode('utf-8'),
-        hashlib.sha256
-    ).hexdigest()
-    
-    params['signature'] = signature  # Dodajemy podpis do parametrów zapytania
-
-    headers = {
-        'X-MBX-APIKEY': client.API_KEY  # Wstaw swój klucz API
-    }
-    
-    # Wykonanie zapytania
-    response = requests.get(url, params=params, headers=headers)
-    
-    if response.status_code == 200:
-        data = response.json()
-        for item in data:
-            item_asset = item['asset']
-            item_amount = float(item['amount'])
-    else:
-        print(f"Error: {response.status_code} - {response.text}")
-    return item_amount
-
-
 def get_binance_balance(client):
     try:
       
@@ -228,11 +191,9 @@ def main():
     binance_balance = get_binance_balance(client)
     balance_bnb = get_wallet_balance(WALLET_ADDRESS, API_KEY1)
     usd = get_binance_data(symbol="BUSDPLN")
-    sol = get_binance_data(symbol="SOLUSDC")
+
     bnb = get_binance_data(symbol="BNBUSDC")
     total_usd = 0
-    sol_stacking = get_staking_balance(client)
-    saldo_sol = sol * sol_stacking
     saldo_bnb = bnb * balance_bnb
     asset_data = {}
 
@@ -253,12 +214,11 @@ def main():
             print(f"Saldo {asset['asset']}: {saldo_usd:.2f} USD")
             total_usd += saldo_usd
 
-
-    total_pln = (total_usd + saldo_sol + saldo_bnb) * usd
-    deposit = 4850
+    s_p500 = 1004
+    total_pln = (total_usd + saldo_bnb) * usd + s_p500
+    deposit = 5850
     current_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Saldo bnb: {saldo_bnb:.2f} USD")
-    print(f"Saldo sol stacking: {saldo_sol:.2f} USD")
     save_to_csv(current_date, total_pln, deposit)
     print(f"Profit: {total_pln - deposit:.2f} PLN")
     plot_total_balance()

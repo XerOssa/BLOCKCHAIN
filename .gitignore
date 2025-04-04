@@ -1,5 +1,4 @@
-# Ignorowanie wirtualnego środowiska
-bc_env/
+
 
 # Pliki systemowe i edytorów
 .vscode/
@@ -17,3 +16,15 @@ node_modules/
 
 # Ignorowanie pliku .env
 .env
+config.json
+
+
+bc_env/
+freqtrade-bot/
+freqtrade-develop/
+freqtrade-env/
+logs/
+hyperopt_results/
+hyperopts/
+backtest_results/
+user_data/

@@ -7,9 +7,6 @@ import pandas as pd
 import matplotlib.dates as mdates
 from dotenv import load_dotenv
 from binance.client import Client
-import hashlib
-import hmac
-import time
 
 load_dotenv()
 
@@ -78,27 +75,6 @@ def save_to_csv(date, total, deposit):
         writer.writerow(row)
 
 
-
-def get_investments(balance):
-    investments = []
-    
-    for asset in balance['balances']:
-        symbol = asset['asset']
-        free = float(asset['free'])  # Dostępne środki
-        locked = float(asset['locked'])  # Zablokowane środki
-        
-        # Jeśli mamy jakiekolwiek środki (zarówno free, jak i locked), dodajemy je do listy
-        if free > 0 or locked > 0:
-            investments.append({
-                'symbol': symbol,
-                'free': free,
-                'locked': locked,
-                'total': free + locked  # Całkowita wartość aktywów
-            })
-    
-    return investments
-
-
 def get_binance_balance(client):
     try:
       
@@ -124,66 +100,6 @@ def get_binance_balance(client):
     except Exception as e:
         print(f"Błąd podczas pobierania salda: {e}")
         return []
-
-
-
-
-def get_investments(balance):
-    investments = []
-    
-    for asset in balance['balances']:
-        symbol = asset['asset']
-        free = float(asset['free'])  # Dostępne środki
-        locked = float(asset['locked'])  # Zablokowane środki
-        
-        # Jeśli mamy jakiekolwiek środki (zarówno free, jak i locked), dodajemy je do listy
-        if free > 0 or locked > 0:
-            investments.append({
-                'symbol': symbol,
-                'free': free,
-                'locked': locked,
-                'total': free + locked  # Całkowita wartość aktywów
-            })
-    
-    return investments
-
-
-def get_staking_balance(client):
-    url = "https://api.binance.com/sapi/v1/staking/position"
-    
-    # Wprowadź swoje dane API, które są wymagane do autoryzacji
-    params = {
-        'timestamp': int(time.time() * 1000),  # Wartość timestamp w milisekundach
-        'recvWindow': 5000,  # Opcjonalnie, można dodać parametry
-        'product': 'STAKING'
-    }
-    
-    # Tworzymy podpis (signature) na podstawie parametrów zapytania
-    query_string = '&'.join([f"{key}={value}" for key, value in params.items()])
-    signature = hmac.new(
-        client.API_SECRET.encode('utf-8'),
-        query_string.encode('utf-8'),
-        hashlib.sha256
-    ).hexdigest()
-    
-    params['signature'] = signature  # Dodajemy podpis do parametrów zapytania
-
-    headers = {
-        'X-MBX-APIKEY': client.API_KEY  # Wstaw swój klucz API
-    }
-    
-    # Wykonanie zapytania
-    response = requests.get(url, params=params, headers=headers)
-    
-    if response.status_code == 200:
-        data = response.json()
-        for item in data:
-            item['asset'], item['amount']
-    else:
-        print(f"Error: {response.status_code} - {response.text}")
-    return float(item['amount']) if "amount" in item else None
-
-
 
 
 def main():
@@ -214,11 +130,12 @@ def main():
             print(f"Saldo {asset['asset']}: {saldo_usd:.2f} USD")
             total_usd += saldo_usd
 
-    s_p500 = 1004
+    s_p500 = 920
     total_pln = (total_usd + saldo_bnb) * usd + s_p500
     deposit = 5850
     current_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Saldo bnb: {saldo_bnb:.2f} USD")
+    print(f"Saldo sp500: {s_p500/usd:.2f} USD")
     save_to_csv(current_date, total_pln, deposit)
     print(f"Profit: {total_pln - deposit:.2f} PLN")
     plot_total_balance()
@@ -226,5 +143,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

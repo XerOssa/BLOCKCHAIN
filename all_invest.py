@@ -7,7 +7,10 @@ import pandas as pd
 import matplotlib.dates as mdates
 from dotenv import load_dotenv
 from binance.client import Client
-
+import hashlib
+import hmac
+import time
+from collections import defaultdict
 load_dotenv()
 
 WALLET_ADDRESS = os.getenv("WALLET_ADDRESS")
@@ -48,10 +51,28 @@ def plot_total_balance():
     plt.xlabel('Date', fontsize=12)
     plt.ylabel('Total Balance (PLN)', fontsize=12)
     data_size = len(df1)
-    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-    if data_size >= 10:
-        plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=1))
-    else:
+    if data_size :
+        plt.gca().xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+    plt.gca().xaxis.set_minor_locator(mdates.AutoDateLocator())
+    plt.grid(axis='y', color='0.90')
+    plt.xticks(rotation=45)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_total_profit():
+    df1 = pd.read_csv("balance_data.csv")
+    df1['Date'] = pd.to_datetime(df1['Date'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
+    
+    df1 = df1.dropna(subset=['Date'])
+    plt.clf()
+    plt.plot(df1['Date'], df1['Total'] - df1['Deposit'] , marker='o', linestyle='-', color='b', label='Profit')
+    plt.title('Total Profit Over Time', fontsize=14)
+    plt.xlabel('Date', fontsize=12)
+    plt.ylabel('Profit (PLN)', fontsize=12)
+    data_size = len(df1)
+    if data_size :
         plt.gca().xaxis.set_major_locator(mdates.MonthLocator(interval=1))
     plt.gca().xaxis.set_minor_locator(mdates.AutoDateLocator())
     plt.grid(axis='y', color='0.90')
@@ -102,12 +123,56 @@ def get_binance_balance(client):
         return []
 
 
+def get_staking_balance(client):
+    url = "https://api.binance.com/sapi/v1/staking/position"
+    
+    # Wprowadź swoje dane API, które są wymagane do autoryzacji
+    params = {
+        'timestamp': int(time.time() * 1000),  # Wartość timestamp w milisekundach
+        'recvWindow': 5000,  # Opcjonalnie, można dodać parametry
+        'product': 'STAKING'
+    }
+    
+    # Tworzymy podpis (signature) na podstawie parametrów zapytania
+    query_string = '&'.join([f"{key}={value}" for key, value in params.items()])
+    signature = hmac.new(
+        client.API_SECRET.encode('utf-8'),
+        query_string.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+    
+    params['signature'] = signature  # Dodajemy podpis do parametrów zapytania
+
+    headers = {
+        'X-MBX-APIKEY': client.API_KEY  # Wstaw swój klucz API
+    }
+    
+    # Wykonanie zapytania
+    response = requests.get(url, params=params, headers=headers)
+    
+    if response.status_code == 200:
+        data = response.json()
+        for item in data:
+            item_asset = item['asset']
+            item_amount = float(item['amount'])
+    else:
+        print(f"Error: {response.status_code} - {response.text}")
+    return item_amount
+
+
 def main():
     client = Client(API_KEY, API_SECRET)
+
     binance_balance = get_binance_balance(client)
     balance_bnb = get_wallet_balance(WALLET_ADDRESS, API_KEY1)
     usd = get_binance_data(symbol="BUSDPLN")
-
+    sol = get_binance_data(symbol="SOLUSDC")
+    bnb = get_binance_data(symbol="BNBUSDC")
+    eth = get_binance_data(symbol="ETHUSDC")
+    total_usd = 0
+    saldo_eth = eth * 0.10023262
+    sol_stacking = get_staking_balance(client)
+    saldo_sol = sol * sol_stacking
     bnb = get_binance_data(symbol="BNBUSDC")
     total_usd = 0
     saldo_bnb = bnb * balance_bnb
@@ -130,15 +195,22 @@ def main():
             print(f"Saldo {asset['asset']}: {saldo_usd:.2f} USD")
             total_usd += saldo_usd
 
-    s_p500 = 920
-    total_pln = (total_usd + saldo_bnb) * usd + s_p500
-    deposit = 5850
+    xtb = 3565
+    ike = 1072
+    total_pln = (total_usd + saldo_bnb + saldo_sol + saldo_eth ) * usd + xtb + ike
+    depo_xtb = 4000
+    depo_binance = 4850
+    deposit = depo_xtb + depo_binance
     current_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Saldo bnb: {saldo_bnb:.2f} USD")
-    print(f"Saldo sp500: {s_p500/usd:.2f} USD")
+    print(f"Saldo sol: {saldo_sol:.2f} USD")
+    print(f"Saldo eth: {saldo_eth:.2f} USD")
     save_to_csv(current_date, total_pln, deposit)
+    print(f"Total Balance: {total_pln:.2f} PLN")
+    print(f"Deposit: {deposit:.2f} PLN")
     print(f"Profit: {total_pln - deposit:.2f} PLN")
     plot_total_balance()
+    plot_total_profit()
 
 
 if __name__ == "__main__":
